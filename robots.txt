@@ -1,0 +1,46 @@
+# robots.txt для Srub Russia
+
+User-agent: *
+Allow: /
+
+# Запрет индексации служебных файлов
+Disallow: /admin/
+Disallow: /cgi-bin/
+Disallow: /tmp/
+Disallow: /*.php$
+Disallow: /*.inc$
+
+# Разрешить индексацию CSS и JS
+Allow: /css/
+Allow: /js/
+Allow: /images/
+
+# Запрет индексации параметров
+Disallow: /*?*
+Disallow: /*&*
+
+# Карта сайта
+Sitemap: https://srub-russia.ru/sitemap.xml
+
+# Специфичные боты
+User-agent: Yandex
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Googlebot-Image
+Allow: /images/
+
+# Запрет для плохих ботов
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+# Время задержки между запросами (в секундах)
+Crawl-delay: 1
