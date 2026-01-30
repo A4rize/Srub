@@ -32,7 +32,7 @@ window.sendToTelegram = window.sendToTelegram || async function(formData, formTy
       let message = formatMessage(formData, formType);
 
       // Отправляем через Telegram Bot API
-      const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_CONFIG.botToken}/sendMessage`, {
+      const response = await fetch(`https://api.telegram.org/7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA/sendMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -174,3 +174,4 @@ ${Object.entries(data).map(([key, value]) => `• ${key}: ${value}`).join('\n')}
   console.log('💡 Для теста выполните: testTelegramConnection()');
 
 })();
+
