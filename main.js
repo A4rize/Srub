@@ -353,7 +353,7 @@
     console.log('📋 Отправка формы:', form.id, data);
 
     // Send to Telegram
-    sendToTelegram(data, form.id || 'contact-form')
+    window.SrubTelegram.sendToTelegram(data, form.id || 'contact-form')
       .then(() => {
         submitButton.classList.remove('loading');
         submitButton.disabled = false;
@@ -810,7 +810,7 @@
       submitBtn.disabled = true;
 
       // Отправляем в Telegram
-      sendToTelegram(data, 'planner-form')
+      window.SrubTelegram.sendToTelegram(data, 'planner-form')
         .then(() => {
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
@@ -914,5 +914,6 @@
   };
 
 })();
+
 
 console.log('✓ Main scripts loaded');
