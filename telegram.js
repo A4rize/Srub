@@ -4,6 +4,16 @@
  * Отправка данных форм в Telegram Bot
  */
 
+// Создаем глобальный объект сразу
+window.SrubTelegram = window.SrubTelegram || {};
+window.sendToTelegram = window.sendToTelegram || async function(formData, formType) {
+  // Делегируем вызов SrubTelegram.sendToTelegram
+  if (window.SrubTelegram && window.SrubTelegram.sendToTelegram) {
+    return window.SrubTelegram.sendToTelegram(formData, formType);
+  }
+  throw new Error('SrubTelegram.sendToTelegram is not available');
+};
+
 (function() {
   'use strict';
 
@@ -12,9 +22,6 @@
     botToken: '7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA',
     chatId: '7232379773' // ЗАМЕНИТЕ на ваш реальный chat ID!
   };
-
-  // ===== ГЛОБАЛЬНЫЙ ОБЪЕКТ SRUB TELEGRAM =====
-  window.SrubTelegram = window.SrubTelegram || {};
 
   // ===== ОТПРАВКА В TELEGRAM =====
   window.SrubTelegram.sendToTelegram = async function(formData, formType) {
@@ -90,7 +97,6 @@
         break;
 
       case 'modal-form':
-      case 'callback-form':
         message = `
 📲 <b>НОВАЯ ЗАЯВКА - ОБРАТНЫЙ ЗВОНОК</b>
 
@@ -104,10 +110,10 @@
 
       default:
         message = `
-📨 <b>НОВАЯ ЗАЯВКА - ${formType.toUpperCase()}</b>
+📨 <b>НОВАЯ ЗАЯВКА</b>
 
 👤 <b>Данные:</b>
-${Object.entries(data).map(([key, value]) => `• ${key}: ${value || 'Не указано'}`).join('\n')}
+${Object.entries(data).map(([key, value]) => `• ${key}: ${value}`).join('\n')}
 
 🕐 Дата: ${timestamp}
         `.trim();
@@ -148,29 +154,23 @@ ${Object.entries(data).map(([key, value]) => `• ${key}: ${value || 'Не ук�
   }
 
   // ===== ТЕСТОВАЯ ОТПРАВКА =====
-  window.SrubTelegram.testConnection = async function() {
+  window.testTelegramConnection = async function() {
     try {
       const testData = {
         name: 'Тестовое сообщение',
-        phone: '+7 (999) 123-45-67',
-        email: 'test@example.com'
+        phone: '+7 (999) 123-45-67'
       };
 
-      await window.SrubTelegram.sendToTelegram(testData, 'test');
+      await sendToTelegram(testData, 'test');
       console.log('✅ Тест успешен! Проверьте Telegram');
-      alert('✅ Тест успешен! Проверьте ваш Telegram');
+      alert('Тест успешен! Проверьте ваш Telegram');
     } catch (error) {
       console.error('❌ Тест не пройден:', error);
-      alert('❌ Ошибка: ' + error.message);
+      alert('Ошибка: ' + error.message);
     }
   };
 
-  // ===== ОБРАТНАЯ СОВМЕСТИМОСТЬ =====
-  // Для совместимости со старым кодом, который может вызывать sendToTelegram напрямую
-  window.sendToTelegram = window.SrubTelegram.sendToTelegram;
-  window.testTelegramConnection = window.SrubTelegram.testConnection;
-
   console.log('✓ Telegram integration loaded');
-  console.log('💡 Для теста выполните: SrubTelegram.testConnection() или testTelegramConnection()');
+  console.log('💡 Для теста выполните: testTelegramConnection()');
 
 })();
