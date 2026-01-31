@@ -14,7 +14,7 @@ window.SrubTelegram = window.SrubTelegram || {};
   const TELEGRAM_CONFIG = {
     // ВНИМАНИЕ: Замените эти значения на свои реальные!
     botToken: '7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA',
-    chatId: '7232379773'  // Замените на реальный chat ID
+    chatId: '2127182767'  // Замените на реальный chat ID
   };
 
   // ===== ПРОВЕРКА КОНФИГУРАЦИИ =====
@@ -366,4 +366,5 @@ ${fields}
   document.head.appendChild(style);
 
 })();
+
 
