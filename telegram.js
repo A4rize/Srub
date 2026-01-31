@@ -1,68 +1,158 @@
 /*!
  * SRUB RUSSIA - Telegram Integration
- * Version: 2.2.0
- * Отправка данных форм в Telegram Bot
+ * Version: 3.0.0
+ * Отправка данных форм через Vercel API
  */
 
-// Создаем глобальный объект сразу
+// Создаем глобальный объект для API
 window.SrubTelegram = window.SrubTelegram || {};
 
 (function() {
   'use strict';
 
-  // ===== КОНФИГУРАЦИЯ TELEGRAM =====
-  const TELEGRAM_CONFIG = {
-    // ВНИМАНИЕ: Замените эти значения на свои реальные!
-    botToken: '7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA',
-    chatId: '2127182767'  // Замените на реальный chat ID
+  // ===== КОНФИГУРАЦИЯ =====
+  const CONFIG = {
+    // URL вашего Vercel API
+    apiUrl: 'https://srub.vercel.app/api/telegram',
+    
+    // Прямое подключение к Telegram (запасной вариант)
+    directTelegram: {
+      botToken: '7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA',
+      chatId: null // Будет получен автоматически
+    },
+    
+    // Настройки повторных попыток
+    retry: {
+      maxAttempts: 2,
+      delay: 1000
+    },
+    
+    // Логирование
+    debug: true
   };
-
-  // ===== ПРОВЕРКА КОНФИГУРАЦИИ =====
-  function checkConfig() {
-    if (!TELEGRAM_CONFIG.botToken || TELEGRAM_CONFIG.botToken.includes('YOUR')) {
-      console.error('❌ ОШИБКА: botToken не настроен!');
-      console.log('💡 Получите токен у @BotFather в Telegram');
-      return false;
-    }
-    
-    if (!TELEGRAM_CONFIG.chatId || TELEGRAM_CONFIG.chatId.includes('YOUR')) {
-      console.error('❌ ОШИБКА: chatId не настроен!');
-      console.log('💡 Получите chatId у @getmyid_bot в Telegram');
-      return false;
-    }
-    
-    return true;
-  }
 
   // ===== ОСНОВНАЯ ФУНКЦИЯ ОТПРАВКИ =====
   async function sendTelegramMessage(formData, formType) {
+    if (CONFIG.debug) {
+      console.log('📤 [Telegram] Начинаем отправку...', { formType, formData });
+    }
+
+    // Обогащаем данные дополнительной информацией
+    const enrichedData = enrichFormData(formData);
+    
     try {
-      console.log('📤 Отправка данных в Telegram...', { formData, formType });
-
-      // Проверяем конфигурацию
-      if (!checkConfig()) {
-        throw new Error('Конфигурация Telegram не настроена. Проверьте консоль для инструкций.');
-      }
-
-      // Формируем сообщение
-      let message = formatMessage(formData, formType);
+      // Пробуем отправить через Vercel API (основной способ)
+      const result = await sendViaVercelAPI(enrichedData, formType);
       
-      // Проверяем, что сообщение не пустое
-      if (!message || message.trim() === '' || message === '<b></b>') {
-        console.error('❌ Ошибка: сформированное сообщение пустое');
-        message = createDefaultMessage(formData, formType);
+      if (CONFIG.debug) {
+        console.log('✅ [Telegram] Успешно отправлено через Vercel API:', result);
+      }
+      
+      return {
+        ok: true,
+        result: {
+          message_id: result.messageId || Date.now(),
+          via: 'vercel-api'
+        }
+      };
+      
+    } catch (vercelError) {
+      console.warn('⚠️ [Telegram] Ошибка Vercel API:', vercelError.message);
+      
+      // Fallback: пробуем прямой запрос к Telegram API
+      try {
+        console.log('🔄 [Telegram] Пробуем прямое подключение...');
+        const directResult = await sendViaDirectAPI(enrichedData, formType);
+        
+        console.log('✅ [Telegram] Успешно отправлено напрямую');
+        return {
+          ok: true,
+          result: {
+            message_id: directResult.result?.message_id || Date.now(),
+            via: 'direct-api'
+          },
+          warning: 'Использовано прямое подключение, Vercel API недоступен'
+        };
+        
+      } catch (directError) {
+        console.error('❌ [Telegram] Оба метода не сработали:', directError.message);
+        
+        // Сохраняем данные локально для последующей отправки
+        saveToLocalStorage(enrichedData, formType);
+        
+        throw new Error(`Не удалось отправить заявку. Ошибки: Vercel - ${vercelError.message}, Direct - ${directError.message}`);
+      }
+    }
+  }
+
+  // ===== ОТПРАВКА ЧЕРЕЗ VERCEL API =====
+  async function sendViaVercelAPI(data, formType) {
+    if (CONFIG.debug) {
+      console.log('🌐 [Vercel] Отправка на:', CONFIG.apiUrl);
+    }
+
+    try {
+      const response = await fetch(CONFIG.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          data: data,
+          formType: formType || 'contact-form'
+        })
+      });
+
+      // Проверяем статус ответа
+      if (!response.ok) {
+        let errorText = 'Ошибка сети';
+        try {
+          const errorData = await response.json();
+          errorText = errorData.error || `HTTP ${response.status}`;
+        } catch (e) {
+          errorText = `HTTP ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(`Vercel API: ${errorText}`);
       }
 
-      console.log('📝 Сформированное сообщение:', message);
+      // Парсим ответ
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Неизвестная ошибка Vercel API');
+      }
+      
+      return result;
+      
+    } catch (error) {
+      console.error('❌ [Vercel] Ошибка запроса:', error.message);
+      throw error;
+    }
+  }
 
-      // Отправляем через Telegram Bot API
-      const response = await fetch(`https://api.telegram.org/bot$7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA/sendMessage`, {
+  // ===== ПРЯМАЯ ОТПРАВКА В TELEGRAM API =====
+  async function sendViaDirectAPI(data, formType) {
+    // Получаем или запрашиваем chatId
+    let chatId = CONFIG.directTelegram.chatId;
+    if (!chatId) {
+      chatId = await getChatId();
+      if (!chatId) {
+        throw new Error('Не удалось получить chatId для прямого подключения');
+      }
+      CONFIG.directTelegram.chatId = chatId;
+    }
+
+    const message = formatDirectMessage(data, formType);
+    
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${CONFIG.directTelegram.botToken}/sendMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          chat_id: TELEGRAM_CONFIG.chatId,
+          chat_id: chatId,
           text: message,
           parse_mode: 'HTML',
           disable_web_page_preview: true
@@ -70,288 +160,294 @@ window.SrubTelegram = window.SrubTelegram || {};
       });
 
       const result = await response.json();
-
+      
       if (!result.ok) {
-        let errorMessage = result.description || 'Неизвестная ошибка Telegram API';
-        
-        // Расшифровка типичных ошибок
-        if (errorMessage.includes('chat not found')) {
-          errorMessage = 'Чат не найден. Убедитесь, что бот добавлен в чат и имеет права на отправку сообщений.';
-        } else if (errorMessage.includes('bot was blocked')) {
-          errorMessage = 'Бот заблокирован пользователем.';
-        } else if (errorMessage.includes('Forbidden')) {
-          errorMessage = 'Доступ запрещен. Проверьте chatId и права бота.';
-        } else if (errorMessage.includes('Unauthorized')) {
-          errorMessage = 'Неверный токен бота. Проверьте botToken.';
-        } else if (errorMessage.includes('message text is empty')) {
-          errorMessage = 'Сообщение пустое. Проверьте данные формы.';
-        }
-        
-        throw new Error(`Telegram API: ${errorMessage}`);
+        throw new Error(result.description || 'Ошибка Telegram API');
       }
-
-      console.log('✅ Сообщение успешно отправлено в Telegram, ID:', result.result.message_id);
+      
       return result;
-
+      
     } catch (error) {
-      console.error('❌ Ошибка отправки в Telegram:', error);
-      
-      // Дополнительная диагностика для CORS
-      if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        console.error('⚠️ Возможная CORS ошибка. Проверьте настройки сервера.');
-      }
-      
+      console.error('❌ [Direct] Ошибка прямой отправки:', error.message);
       throw error;
     }
   }
 
-  // ===== ФОРМАТИРОВАНИЕ СООБЩЕНИЯ =====
-  function formatMessage(data, formType) {
+  // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+
+  // Обогащение данных формы
+  function enrichFormData(data) {
+    return {
+      ...data,
+      pageUrl: window.location.href,
+      userAgent: navigator.userAgent,
+      screenResolution: `${window.screen.width}x${window.screen.height}`,
+      timestamp: new Date().toISOString(),
+      referrer: document.referrer || 'Прямой заход'
+    };
+  }
+
+  // Получение chatId для прямого подключения
+  async function getChatId() {
     try {
-      // Проверяем данные
-      if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
-        return createDefaultMessage(data, formType);
+      // Пробуем получить из localStorage
+      const savedChatId = localStorage.getItem('telegram_chat_id');
+      if (savedChatId) {
+        return savedChatId;
       }
 
-      const timestamp = new Date().toLocaleString('ru-RU');
-      const formTypeLower = (formType || 'contact').toLowerCase().trim();
+      // Запрашиваем через бота (только если пользователь взаимодействовал с ботом)
+      const response = await fetch(`https://api.telegram.org/bot${CONFIG.directTelegram.botToken}/getUpdates`);
+      const data = await response.json();
       
-      let message = '';
-
-      switch(formTypeLower) {
-        case 'planner-form':
-        case 'planner':
-          message = `🏠 <b>НОВАЯ ЗАЯВКА - ПЛАНИРОВЩИК СРУБОВ</b>
-
-📋 <b>Параметры проекта:</b>
-${formatField('Тип объекта', getTypeLabel(data.type))}
-${formatField('Площадь', getAreaLabel(data.area))}
-${formatField('Этажность', data.floors)}
-${formatField('Комплектация', getPackageLabel(data.package))}
-
-👤 <b>Контактные данные:</b>
-${formatField('Имя', data.name)}
-${formatField('Телефон', data.phone)}
-${formatField('Email', data.email || '')}
-${formatField('Сообщение', data.message || '')}
-
-🕐 <b>Дата:</b> ${timestamp}
-
-🌐 <b>Страница:</b> ${window.location.href}`;
-          break;
-
-        case 'cta-form':
-        case 'consultation':
-          message = `📞 <b>НОВАЯ ЗАЯВКА - КОНСУЛЬТАЦИЯ</b>
-
-👤 <b>Контактные данные:</b>
-${formatField('Имя', data.name)}
-${formatField('Телефон', data.phone)}
-${formatField('Email', data.email)}
-${formatField('Сообщение', data.message || '')}
-
-🕐 <b>Дата:</b> ${timestamp}
-
-🌐 <b>Страница:</b> ${window.location.href}`;
-          break;
-
-        case 'callback-form':
-        case 'modal-form':
-        case 'modal-callback':
-          message = `📲 <b>НОВАЯ ЗАЯВКА - ОБРАТНЫЙ ЗВОНОК</b>
-
-👤 <b>Контактные данные:</b>
-${formatField('Имя', data.name)}
-${formatField('Телефон', data.phone)}
-
-🕐 <b>Дата:</b> ${timestamp}
-
-🌐 <b>Страница:</b> ${window.location.href}`;
-          break;
-
-        default:
-          message = createDefaultMessage(data, formType);
+      if (data.ok && data.result.length > 0) {
+        const chatId = String(data.result[data.result.length - 1].message.chat.id);
+        localStorage.setItem('telegram_chat_id', chatId);
+        return chatId;
       }
+      
+      return null;
+    } catch (error) {
+      console.warn('Не удалось получить chatId:', error.message);
+      return null;
+    }
+  }
 
-      return message.trim();
+  // Форматирование сообщения для прямого API
+  function formatDirectMessage(data, formType) {
+    const timestamp = new Date().toLocaleString('ru-RU');
+    
+    let message = `📨 Новая заявка с сайта\n`;
+    message += `Тип: ${formType || 'не указан'}\n`;
+    message += `Время: ${timestamp}\n`;
+    message += `Страница: ${data.pageUrl || 'не указана'}\n\n`;
+    
+    // Добавляем основные поля
+    if (data.name) message += `👤 Имя: ${data.name}\n`;
+    if (data.phone) message += `📞 Телефон: ${data.phone}\n`;
+    if (data.email) message += `📧 Email: ${data.email}\n`;
+    if (data.message) message += `💬 Сообщение: ${data.message}\n`;
+    
+    // Добавляем дополнительные поля
+    Object.entries(data).forEach(([key, value]) => {
+      if (!['name', 'phone', 'email', 'message', 'pageUrl', 'userAgent', 'timestamp'].includes(key) && value) {
+        message += `${key}: ${value}\n`;
+      }
+    });
+    
+    return message;
+  }
+
+  // Локальное сохранение заявок
+  function saveToLocalStorage(data, formType) {
+    try {
+      const storageKey = 'srub_pending_requests';
+      const pendingRequests = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      
+      pendingRequests.push({
+        id: Date.now(),
+        data: data,
+        formType: formType,
+        timestamp: new Date().toISOString(),
+        attempts: 0
+      });
+      
+      localStorage.setItem(storageKey, JSON.stringify(pendingRequests));
+      
+      console.log('💾 Заявка сохранена локально. Всего сохранено:', pendingRequests.length);
+      
+      // Показываем уведомление пользователю
+      showLocalSaveNotification(pendingRequests.length);
       
     } catch (error) {
-      console.error('Ошибка при форматировании сообщения:', error);
-      return createDefaultMessage(data, formType);
+      console.error('Ошибка сохранения в localStorage:', error);
     }
   }
 
-  // ===== СОЗДАНИЕ СООБЩЕНИЯ ПО УМОЛЧАНИЮ =====
-  function createDefaultMessage(data, formType) {
-    const timestamp = new Date().toLocaleString('ru-RU');
-    const formTypeStr = formType || 'unknown';
+  // Уведомление о локальном сохранении
+  function showLocalSaveNotification(count) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #f39c12;
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      font-family: Arial, sans-serif;
+      max-width: 300px;
+      animation: slideIn 0.3s ease;
+    `;
     
-    let fields = '• Данные: нет информации';
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 5px;">⚠️ Внимание!</div>
+      <div style="font-size: 14px;">
+        Заявка сохранена локально (${count} шт.). 
+        Мы отправим её как только восстановится связь с сервером.
+      </div>
+    `;
     
-    if (data && typeof data === 'object' && Object.keys(data).length > 0) {
-      fields = Object.entries(data)
-        .map(([key, value]) => formatField(getFieldLabel(key), value))
-        .join('\n');
-    }
+    document.body.appendChild(notification);
     
-    return `📨 <b>НОВАЯ ЗАЯВКА - ${formTypeStr.toUpperCase()}</b>
-
-📋 <b>Информация о заявке:</b>
-${fields}
-
-🕐 <b>Дата:</b> ${timestamp}
-
-🌐 <b>Страница:</b> ${window.location.href}`;
-  }
-
-  // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
-  function formatField(label, value) {
-    if (!value && value !== 0 && value !== false) return `• ${label}: Не указано`;
-    if (value === true) return `• ${label}: Да`;
-    if (value === false) return `• ${label}: Нет`;
-    return `• ${label}: ${value}`;
-  }
-
-  function getFieldLabel(fieldName) {
-    const labels = {
-      'name': 'Имя',
-      'phone': 'Телефон',
-      'email': 'Email',
-      'message': 'Сообщение',
-      'comment': 'Комментарий',
-      'type': 'Тип объекта',
-      'area': 'Площадь',
-      'floors': 'Этажность',
-      'package': 'Комплектация',
-      'agree': 'Согласие на обработку',
-      'utm_source': 'UTM Source',
-      'utm_medium': 'UTM Medium',
-      'utm_campaign': 'UTM Campaign'
-    };
-    return labels[fieldName] || fieldName;
-  }
-
-  function getTypeLabel(value) {
-    const labels = {
-      'house': '🏡 Дом',
-      'bath': '🛁 Баня',
-      'guest': '🏘️ Гостевой дом',
-      'house_bath': '🏡 Дом + Баня'
-    };
-    return labels[value] || value || 'Не указано';
-  }
-
-  function getAreaLabel(value) {
-    const labels = {
-      '50': 'До 50 м²',
-      '100': '50-100 м²',
-      '150': '100-150 м²',
-      '200': '150-200 м²',
-      '250': 'Более 200 м²'
-    };
-    return labels[value] || (value ? value + ' м²' : 'Не указано');
-  }
-
-  function getPackageLabel(value) {
-    const labels = {
-      'basic': '📦 Базовая',
-      'standard': '📦 Стандарт',
-      'premium': '⭐ Премиум',
-      'turnkey': '🔑 Под ключ'
-    };
-    return labels[value] || value || 'Не указано';
+    setTimeout(() => {
+      notification.style.animation = 'slideOut 0.3s ease';
+      setTimeout(() => notification.remove(), 300);
+    }, 5000);
   }
 
   // ===== ГЛОБАЛЬНЫЕ ФУНКЦИИ =====
-  
+
   // Основная функция отправки
   window.SrubTelegram.sendToTelegram = sendTelegramMessage;
-  
-  // Алиас для обратной совместимости
   window.sendToTelegram = sendTelegramMessage;
 
-  // ===== ТЕСТОВАЯ ОТПРАВКА =====
+  // Тестирование подключения
   window.SrubTelegram.testConnection = async function() {
+    console.log('🔍 Тестирование подключения к Telegram через Vercel...');
+    
+    const testData = {
+      name: 'Тестовое сообщение',
+      phone: '+7 (999) 123-45-67',
+      email: 'test@srub-russia.ru',
+      message: 'Это тестовое сообщение для проверки работы Telegram бота через Vercel API'
+    };
+    
     try {
-      console.log('🔍 Тестирование подключения к Telegram...');
-      
-      // Проверяем конфигурацию
-      if (!checkConfig()) {
-        throw new Error('Конфигурация Telegram не настроена');
-      }
-
-      const testData = {
-        name: 'Тестовое сообщение',
-        phone: '+7 (999) 123-45-67',
-        email: 'test@srub-russia.ru',
-        message: 'Это тестовое сообщение для проверки интеграции Telegram',
-        type: 'house',
-        area: '150',
-        floors: '2',
-        package: 'standard'
-      };
-
-      console.log('📤 Отправка тестового сообщения...');
       const result = await sendTelegramMessage(testData, 'test-connection');
       
-      console.log('✅ Тест успешен! ID сообщения:', result.result.message_id);
+      const alertDiv = document.createElement('div');
+      alertDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #2ecc71;
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        z-index: 10000;
+        font-family: Arial, sans-serif;
+        max-width: 400px;
+        animation: slideIn 0.3s ease;
+      `;
       
-      // Показываем красивый алерт
-      showAlert('success', 'Тест успешен!', 'Тестовое сообщение отправлено в Telegram.');
+      alertDiv.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 10px; font-size: 18px;">✅ Тест успешен!</div>
+        <div style="margin-bottom: 10px;">Сообщение отправлено через: <strong>${result.result.via}</strong></div>
+        <div style="font-size: 14px; opacity: 0.9;">ID: ${result.result.message_id}</div>
+        ${result.warning ? `<div style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; font-size: 12px;">⚠️ ${result.warning}</div>` : ''}
+      `;
+      
+      document.body.appendChild(alertDiv);
+      
+      setTimeout(() => {
+        alertDiv.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => alertDiv.remove(), 300);
+      }, 5000);
       
       return result;
       
     } catch (error) {
       console.error('❌ Тест не пройден:', error);
       
-      showAlert('error', 'Ошибка подключения!', error.message);
+      const alertDiv = document.createElement('div');
+      alertDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #e74c3c;
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        z-index: 10000;
+        font-family: Arial, sans-serif;
+        max-width: 400px;
+        animation: slideIn 0.3s ease;
+      `;
       
-      return { ok: false, error: error.message };
+      alertDiv.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 10px; font-size: 18px;">❌ Ошибка подключения!</div>
+        <div style="margin-bottom: 10px;">${error.message}</div>
+        <div style="font-size: 12px; opacity: 0.8;">Проверьте консоль для подробностей</div>
+      `;
+      
+      document.body.appendChild(alertDiv);
+      
+      setTimeout(() => {
+        alertDiv.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => alertDiv.remove(), 5000);
+      }, 5000);
+      
+      throw error;
     }
   };
 
-  // Алиас для тестовой функции
+  // Алиас для тестирования
   window.testTelegramConnection = window.SrubTelegram.testConnection;
 
-  // ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ АЛЕРТОВ =====
-  function showAlert(type, title, message) {
-    const alertBox = document.createElement('div');
-    alertBox.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: ${type === 'success' ? '#2ecc71' : '#e74c3c'};
-      color: white;
-      padding: 15px 20px;
-      border-radius: 10px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-      z-index: 99999;
-      font-family: Arial, sans-serif;
-      max-width: 400px;
-      animation: slideIn 0.3s ease;
-    `;
-    alertBox.innerHTML = `
-      <div style="font-weight: bold; margin-bottom: 5px;">${type === 'success' ? '✅' : '❌'} ${title}</div>
-      <div style="font-size: 14px;">${message}</div>
-    `;
-    document.body.appendChild(alertBox);
+  // Просмотр сохраненных локально заявок
+  window.SrubTelegram.showPendingRequests = function() {
+    const pendingRequests = JSON.parse(localStorage.getItem('srub_pending_requests') || '[]');
+    console.log('📋 Ожидающие отправки заявки:', pendingRequests);
     
-    setTimeout(() => {
-      alertBox.style.animation = 'slideOut 0.3s ease';
-      setTimeout(() => alertBox.remove(), 300);
-    }, 5000);
-  }
+    if (pendingRequests.length === 0) {
+      alert('Нет заявок, ожидающих отправки.');
+      return [];
+    }
+    
+    alert(`Есть ${pendingRequests.length} заявок, ожидающих отправки. Проверьте консоль для деталей.`);
+    return pendingRequests;
+  };
+
+  // Ручная отправка сохраненных заявок
+  window.SrubTelegram.retryPendingRequests = async function() {
+    const storageKey = 'srub_pending_requests';
+    const pendingRequests = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    
+    if (pendingRequests.length === 0) {
+      alert('Нет заявок для повторной отправки.');
+      return { success: 0, failed: 0 };
+    }
+    
+    console.log(`🔄 Пробуем повторно отправить ${pendingRequests.length} заявок...`);
+    
+    const successful = [];
+    const failed = [];
+    
+    for (const request of pendingRequests) {
+      try {
+        const result = await sendTelegramMessage(request.data, request.formType);
+        successful.push(request.id);
+      } catch (error) {
+        failed.push({ id: request.id, error: error.message });
+      }
+      
+      // Небольшая задержка между запросами
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    // Удаляем успешно отправленные заявки
+    const remainingRequests = pendingRequests.filter(req => !successful.includes(req.id));
+    localStorage.setItem(storageKey, JSON.stringify(remainingRequests));
+    
+    const message = `Повторная отправка завершена:\nУспешно: ${successful.length}\nНе удалось: ${failed.length}`;
+    console.log(message);
+    alert(message);
+    
+    return { success: successful.length, failed: failed.length, failedDetails: failed };
+  };
 
   // ===== ИНИЦИАЛИЗАЦИЯ =====
-  console.log('📱 Telegram Integration v2.2.0 Loaded');
-  console.log('===========================================');
-  console.log('⚙️  Статус конфигурации:');
-  console.log('   Bot Token:', TELEGRAM_CONFIG.botToken ? '✓ Установлен' : '✗ Не установлен');
-  console.log('   Chat ID:', TELEGRAM_CONFIG.chatId ? '✓ Установлен' : '✗ Не установлен');
-  console.log('===========================================');
+  console.log('📱 Telegram Integration v3.0.0 Loaded');
+  console.log('🌐 Vercel API URL:', CONFIG.apiUrl);
   console.log('💡 Для теста выполните: testTelegramConnection()');
+  console.log('💡 Для просмотра сохраненных заявок: SrubTelegram.showPendingRequests()');
 
-  // Стили для анимации алерта
+  // Добавляем стили для анимации
   const style = document.createElement('style');
   style.textContent = `
     @keyframes slideIn {
@@ -366,5 +462,4 @@ ${fields}
   document.head.appendChild(style);
 
 })();
-
 
