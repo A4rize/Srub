@@ -66,54 +66,55 @@
     
     console.log('✓ Website initialized successfully');
     
-    // Добавляем временную заглушку для sendToTelegram если функция не загрузилась
-    setupTelegramFallback();
+    // Отложенная проверка загрузки Telegram
+    setTimeout(checkTelegramIntegration, 2000);
+  }
+
+  // ===== ПРОВЕРКА ИНТЕГРАЦИИ TELEGRAM =====
+  function checkTelegramIntegration() {
+    console.log('🔍 Проверка интеграции Telegram...');
+    
+    if (typeof window.sendToTelegram !== 'function') {
+      console.warn('⚠️ Telegram integration not loaded, using fallback');
+      setupTelegramFallback();
+    } else {
+      console.log('✓ Telegram integration is available');
+    }
   }
 
   // ===== TELEGRAM FALLBACK =====
   function setupTelegramFallback() {
-    // Проверяем через 3 секунды после загрузки, загрузился ли telegram.js
-    setTimeout(() => {
-      if (typeof window.sendToTelegram !== 'function') {
-        console.warn('⚠️ Telegram integration not loaded, setting up fallback');
+    // Создаем заглушку для тестирования
+    window.sendToTelegram = async function(formData, formType) {
+      console.log('📤 [FALLBACK] Отправка в Telegram:', { formData, formType });
+      
+      // Имитируем задержку сети
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      console.log('✅ [FALLBACK] Сообщение успешно отправлено (заглушка)');
+      return { ok: true, result: { message_id: Date.now() } };
+    };
+    
+    window.testTelegramConnection = async function() {
+      console.log('🔍 [FALLBACK] Тестирование подключения к Telegram...');
+      
+      try {
+        await window.sendToTelegram({
+          name: 'Тестовое сообщение',
+          phone: '+7 (999) 123-45-67',
+          email: 'test@srub-russia.ru'
+        }, 'test-connection');
         
-        window.sendToTelegram = async function(formData, formType) {
-          console.log('📤 [FALLBACK] Отправка в Telegram:', { formData, formType });
-          
-          // Временная заглушка для тестирования
-          return new Promise((resolve) => {
-            setTimeout(() => {
-              console.log('✅ [FALLBACK] Сообщение успешно отправлено (заглушка)');
-              resolve({ ok: true, result: { message_id: Date.now() } });
-            }, 1000);
-          });
-        };
-        
-        window.testTelegramConnection = async function() {
-          console.log('🔍 [FALLBACK] Тестирование подключения к Telegram...');
-          
-          try {
-            await window.sendToTelegram({
-              name: 'Тестовое сообщение',
-              phone: '+7 (999) 123-45-67',
-              email: 'test@srub-russia.ru'
-            }, 'test-connection');
-            
-            console.log('✅ [FALLBACK] Тест успешен!');
-            alert('✅ [FALLBACK] Тест успешен! Проверьте консоль.');
-            return true;
-          } catch (error) {
-            console.error('❌ [FALLBACK] Тест не пройден:', error);
-            alert('❌ [FALLBACK] Ошибка: ' + error.message);
-            return false;
-          }
-        };
-        
-        console.log('✓ Telegram fallback setup complete');
-      } else {
-        console.log('✓ Telegram integration is available');
+        console.log('✅ [FALLBACK] Тест успешен!');
+        alert('✅ [FALLBACK] Telegram не настроен, но формы будут работать в тестовом режиме.');
+        return { ok: true };
+      } catch (error) {
+        console.error('❌ [FALLBACK] Тест не пройден:', error);
+        return { ok: false, error: error.message };
       }
-    }, 3000);
+    };
+    
+    console.log('✓ Telegram fallback setup complete');
   }
 
   // ===== EVENT LISTENERS =====
@@ -381,6 +382,7 @@
     
     const form = e.target;
     const submitButton = form.querySelector('[type="submit"]');
+    const formId = form.id || 'contact-form';
     
     // Validate form
     if (!validateForm(form)) {
@@ -407,7 +409,7 @@
     data.timestamp = new Date().toLocaleString('ru-RU');
     data.pageUrl = window.location.href;
 
-    console.log('📋 Отправка формы:', form.id, data);
+    console.log('📋 Отправка формы:', formId, data);
 
     // Проверяем, есть ли данные для отправки
     if (Object.keys(data).length === 0) {
@@ -421,7 +423,6 @@
     // Проверяем наличие функции отправки
     if (typeof window.sendToTelegram !== 'function') {
       console.error('❌ sendToTelegram function not found');
-      console.log('Доступные функции:', Object.keys(window).filter(k => k.includes('send') || k.includes('Telegram')));
       
       // Имитируем успешную отправку для тестирования
       setTimeout(() => {
@@ -430,7 +431,7 @@
         
         showFormSuccess(form, 'Спасибо! Ваша заявка отправлена. Мы свяжемся с вами в ближайшее время.');
         
-        trackEvent('Form', 'Submit', form.id);
+        trackEvent('Form', 'Submit', formId);
         
         setTimeout(() => {
           resetForm(form);
@@ -444,14 +445,14 @@
     }
 
     // Send to Telegram
-    window.sendToTelegram(data, form.id || 'contact-form')
-      .then(() => {
+    window.sendToTelegram(data, formId)
+      .then((result) => {
         submitButton.classList.remove('loading');
         submitButton.disabled = false;
         
         showFormSuccess(form, 'Спасибо! Ваша заявка отправлена. Мы свяжемся с вами в ближайшее время.');
         
-        trackEvent('Form', 'Submit', form.id);
+        trackEvent('Form', 'Submit', formId);
         
         setTimeout(() => {
           resetForm(form);
@@ -469,6 +470,8 @@
         let errorMessage = 'Произошла ошибка при отправке. ';
         if (error.message.includes('chat not found') || error.message.includes('Forbidden')) {
           errorMessage += 'Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+        } else if (error.message.includes('Unauthorized')) {
+          errorMessage += 'Проверьте настройки Telegram бота.';
         } else {
           errorMessage += 'Пожалуйста, попробуйте позже или позвоните нам: +7 (961) 139-60-44';
         }
@@ -548,7 +551,12 @@
     
     const successDiv = document.createElement('div');
     successDiv.className = 'form-success';
-    successDiv.textContent = message;
+    successDiv.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 20px;">✅</span>
+        <span>${message}</span>
+      </div>
+    `;
     successDiv.setAttribute('role', 'alert');
     
     form.appendChild(successDiv);
@@ -559,7 +567,12 @@
     
     const errorDiv = document.createElement('div');
     errorDiv.className = 'form-error';
-    errorDiv.textContent = message;
+    errorDiv.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 20px;">❌</span>
+        <span>${message}</span>
+      </div>
+    `;
     errorDiv.setAttribute('role', 'alert');
     
     form.appendChild(errorDiv);
@@ -980,6 +993,8 @@
           let errorMessage = '';
           if (error.message.includes('chat not found') || error.message.includes('Forbidden')) {
             errorMessage = 'Ошибка конфигурации Telegram. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+          } else if (error.message.includes('Unauthorized')) {
+            errorMessage = 'Неверный токен Telegram бота. Проверьте настройки.';
           } else {
             errorMessage = 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
           }
@@ -1064,6 +1079,14 @@
         console.error('testTelegramConnection не найдена');
         alert('Функция testTelegramConnection не загружена');
         return Promise.reject('Function not loaded');
+      }
+    },
+    // Прямой доступ к функциям Telegram
+    sendToTelegram: function(data, formType) {
+      if (typeof window.sendToTelegram === 'function') {
+        return window.sendToTelegram(data, formType);
+      } else {
+        return Promise.reject('sendToTelegram not loaded');
       }
     }
   };
