@@ -1,13 +1,12 @@
 /*!
  * SRUB RUSSIA - Telegram Integration
- * Version: 1.0.0
+ * Version: 2.0.0
  * Отправка данных форм в Telegram Bot
  */
 
 // Создаем глобальный объект сразу
 window.SrubTelegram = window.SrubTelegram || {};
 window.sendToTelegram = window.sendToTelegram || async function(formData, formType) {
-  // Делегируем вызов SrubTelegram.sendToTelegram
   if (window.SrubTelegram && window.SrubTelegram.sendToTelegram) {
     return window.SrubTelegram.sendToTelegram(formData, formType);
   }
@@ -18,21 +17,34 @@ window.sendToTelegram = window.sendToTelegram || async function(formData, formTy
   'use strict';
 
   // ===== КОНФИГУРАЦИЯ TELEGRAM =====
+  // ВАЖНО: Замените эти значения на реальные!
   const TELEGRAM_CONFIG = {
     botToken: '7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA',
-    chatId: '7232379773' // ЗАМЕНИТЕ на ваш реальный chat ID!
+    chatId: '7232379773' // Замените на реальный chat ID
   };
 
   // ===== ОТПРАВКА В TELEGRAM =====
   window.SrubTelegram.sendToTelegram = async function(formData, formType) {
     try {
-      console.log('📤 Отправка данных в Telegram...', formData);
+      console.log('📤 Отправка данных в Telegram...', { formData, formType });
 
       // Формируем сообщение в зависимости от типа формы
       let message = formatMessage(formData, formType);
+      
+      // Проверяем, что сообщение не пустое
+      if (!message || message.trim() === '') {
+        console.error('❌ Ошибка: сформированное сообщение пустое');
+        console.log('Данные формы:', formData);
+        console.log('Тип формы:', formType);
+        
+        // Создаем сообщение по умолчанию
+        message = createDefaultMessage(formData, formType);
+      }
+
+      console.log('📝 Сформированное сообщение:', message);
 
       // Отправляем через Telegram Bot API
-      const response = await fetch(`https://api.telegram.org/7232379773:AAGmI9XTdSWBvAKCsVL4sla92eim2dodxPA/sendMessage`, {
+      const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_CONFIG.botToken}/sendMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -61,75 +73,136 @@ window.sendToTelegram = window.sendToTelegram || async function(formData, formTy
 
   // ===== ФОРМАТИРОВАНИЕ СООБЩЕНИЯ =====
   function formatMessage(data, formType) {
-    const timestamp = new Date().toLocaleString('ru-RU');
-    let message = '';
+    try {
+      const timestamp = new Date().toLocaleString('ru-RU');
+      
+      // Если данные пустые, создаем сообщение по умолчанию
+      if (!data || Object.keys(data).length === 0) {
+        return createDefaultMessage(data, formType);
+      }
 
-    switch(formType) {
-      case 'planner-form':
-        message = `
+      let message = '';
+      
+      // Определяем тип формы
+      const formTypeLower = (formType || '').toLowerCase();
+      
+      switch(true) {
+        case formTypeLower.includes('planner'):
+          message = `
 🏠 <b>НОВАЯ ЗАЯВКА - ПЛАНИРОВЩИК</b>
 
 📋 <b>Параметры проекта:</b>
-• Тип объекта: ${getTypeLabel(data.type)}
-• Площадь: ${getAreaLabel(data.area)}
-• Этажность: ${data.floors || 'Не указано'}
-• Комплектация: ${getPackageLabel(data.package)}
+${formatField('Тип объекта', getTypeLabel(data.type))}
+${formatField('Площадь', getAreaLabel(data.area))}
+${formatField('Этажность', data.floors)}
+${formatField('Комплектация', getPackageLabel(data.package))}
 
 👤 <b>Контактные данные:</b>
-• Имя: ${data.name || 'Не указано'}
-• Телефон: ${data.phone || 'Не указано'}
+${formatField('Имя', data.name)}
+${formatField('Телефон', data.phone)}
 
 🕐 Дата: ${timestamp}
-        `.trim();
-        break;
+          `.trim();
+          break;
 
-      case 'cta-form':
-        message = `
+        case formTypeLower.includes('cta'):
+        case formTypeLower.includes('consult'):
+          message = `
 📞 <b>НОВАЯ ЗАЯВКА - КОНСУЛЬТАЦИЯ</b>
 
 👤 <b>Контактные данные:</b>
-• Имя: ${data.name || 'Не указано'}
-• Телефон: ${data.phone || 'Не указано'}
-• Email: ${data.email || 'Не указано'}
+${formatField('Имя', data.name)}
+${formatField('Телефон', data.phone)}
+${formatField('Email', data.email)}
+${formatField('Сообщение', data.message)}
 
 🕐 Дата: ${timestamp}
-        `.trim();
-        break;
+          `.trim();
+          break;
 
-      case 'modal-form':
-        message = `
+        case formTypeLower.includes('callback'):
+        case formTypeLower.includes('modal'):
+          message = `
 📲 <b>НОВАЯ ЗАЯВКА - ОБРАТНЫЙ ЗВОНОК</b>
 
 👤 <b>Контактные данные:</b>
-• Имя: ${data.name || 'Не указано'}
-• Телефон: ${data.phone || 'Не указано'}
+${formatField('Имя', data.name)}
+${formatField('Телефон', data.phone)}
 
 🕐 Дата: ${timestamp}
-        `.trim();
-        break;
+          `.trim();
+          break;
 
-      default:
-        message = `
-📨 <b>НОВАЯ ЗАЯВКА</b>
+        default:
+          message = createDefaultMessage(data, formType);
+      }
 
-👤 <b>Данные:</b>
-${Object.entries(data).map(([key, value]) => `• ${key}: ${value}`).join('\n')}
-
-🕐 Дата: ${timestamp}
-        `.trim();
+      return message.trim();
+      
+    } catch (error) {
+      console.error('Ошибка при форматировании сообщения:', error);
+      return createDefaultMessage(data, formType);
     }
+  }
 
-    return message;
+  // ===== СОЗДАНИЕ СООБЩЕНИЯ ПО УМОЛЧАНИЮ =====
+  function createDefaultMessage(data, formType) {
+    const timestamp = new Date().toLocaleString('ru-RU');
+    const formTypeStr = formType || 'unknown';
+    
+    let fields = '';
+    
+    if (data && typeof data === 'object') {
+      fields = Object.entries(data)
+        .map(([key, value]) => formatField(getFieldLabel(key), value))
+        .join('\n');
+    } else {
+      fields = '• Данные: нет информации';
+    }
+    
+    return `
+📨 <b>НОВАЯ ЗАЯВКА - ${formTypeStr.toUpperCase()}</b>
+
+📋 <b>Информация о заявке:</b>
+${fields}
+
+🕐 Дата: ${timestamp}
+    `.trim();
   }
 
   // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+  function formatField(label, value) {
+    if (!value) return `• ${label}: Не указано`;
+    return `• ${label}: ${value}`;
+  }
+
+  function getFieldLabel(fieldName) {
+    const labels = {
+      'name': 'Имя',
+      'phone': 'Телефон',
+      'email': 'Email',
+      'message': 'Сообщение',
+      'comment': 'Комментарий',
+      'type': 'Тип объекта',
+      'area': 'Площадь',
+      'floors': 'Этажность',
+      'package': 'Комплектация',
+      'agree': 'Согласие',
+      'utm_source': 'UTM Source',
+      'utm_medium': 'UTM Medium',
+      'utm_campaign': 'UTM Campaign'
+    };
+    return labels[fieldName] || fieldName;
+  }
+
   function getTypeLabel(value) {
     const labels = {
       'house': '🏡 Дом',
       'bath': '🛁 Баня',
-      'guest': '🏘️ Гостевой дом'
+      'guest': '🏘️ Гостевой дом',
+      'house_bath': '🏡 Дом + Баня'
     };
-    return labels[value] || value;
+    return labels[value] || value || 'Не указано';
   }
 
   function getAreaLabel(value) {
@@ -140,7 +213,7 @@ ${Object.entries(data).map(([key, value]) => `• ${key}: ${value}`).join('\n')}
       '200': '150-200 м²',
       '250': 'Более 200 м²'
     };
-    return labels[value] || value + ' м²';
+    return labels[value] || (value ? value + ' м²' : 'Не указано');
   }
 
   function getPackageLabel(value) {
@@ -150,29 +223,45 @@ ${Object.entries(data).map(([key, value]) => `• ${key}: ${value}`).join('\n')}
       'premium': '⭐ Премиум',
       'turnkey': '🔑 Под ключ'
     };
-    return labels[value] || value;
+    return labels[value] || value || 'Не указано';
   }
 
   // ===== ТЕСТОВАЯ ОТПРАВКА =====
-  window.testTelegramConnection = async function() {
+  window.SrubTelegram.testConnection = async function() {
     try {
       const testData = {
         name: 'Тестовое сообщение',
-        phone: '+7 (999) 123-45-67'
+        phone: '+7 (999) 123-45-67',
+        email: 'test@srub-russia.ru',
+        message: 'Это тестовое сообщение для проверки интеграции Telegram'
       };
 
-      await sendToTelegram(testData, 'test');
+      console.log('🔍 Тестирование подключения к Telegram...');
+      
+      // Проверяем конфигурацию
+      if (!TELEGRAM_CONFIG.botToken || !TELEGRAM_CONFIG.chatId) {
+        throw new Error('Конфигурация Telegram не настроена');
+      }
+
+      await window.SrubTelegram.sendToTelegram(testData, 'test-connection');
+      
       console.log('✅ Тест успешен! Проверьте Telegram');
-      alert('Тест успешен! Проверьте ваш Telegram');
+      
+      // Показываем алерт
+      alert('✅ Тест успешен! Проверьте ваш Telegram');
+      return true;
+      
     } catch (error) {
       console.error('❌ Тест не пройден:', error);
-      alert('Ошибка: ' + error.message);
+      alert('❌ Ошибка: ' + error.message);
+      return false;
     }
   };
+
+  // Также добавляем старый вариант для совместимости
+  window.testTelegramConnection = window.SrubTelegram.testConnection;
 
   console.log('✓ Telegram integration loaded');
   console.log('💡 Для теста выполните: testTelegramConnection()');
 
 })();
-
-
