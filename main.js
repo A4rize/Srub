@@ -579,7 +579,7 @@
   }
 
   function removeFormMessages(form) {
-    const messages = form.querySelectorAll('.form-success, .form-error');
+    const messages = form.querySelectorAll('.form-success, .');
     messages.forEach(msg => msg.remove());
   }
 
@@ -1094,3 +1094,4 @@
 })();
 
 console.log('✓ Main scripts loaded');
+
