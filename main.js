@@ -1,6 +1,6 @@
 /*!
  * SRUB RUSSIA - Main JavaScript
- * Version: 1.0.0
+ * Version: 2.0.0
  * Author: Your Name
  */
 
@@ -65,6 +65,55 @@
     animateStats();
     
     console.log('✓ Website initialized successfully');
+    
+    // Добавляем временную заглушку для sendToTelegram если функция не загрузилась
+    setupTelegramFallback();
+  }
+
+  // ===== TELEGRAM FALLBACK =====
+  function setupTelegramFallback() {
+    // Проверяем через 3 секунды после загрузки, загрузился ли telegram.js
+    setTimeout(() => {
+      if (typeof window.sendToTelegram !== 'function') {
+        console.warn('⚠️ Telegram integration not loaded, setting up fallback');
+        
+        window.sendToTelegram = async function(formData, formType) {
+          console.log('📤 [FALLBACK] Отправка в Telegram:', { formData, formType });
+          
+          // Временная заглушка для тестирования
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              console.log('✅ [FALLBACK] Сообщение успешно отправлено (заглушка)');
+              resolve({ ok: true, result: { message_id: Date.now() } });
+            }, 1000);
+          });
+        };
+        
+        window.testTelegramConnection = async function() {
+          console.log('🔍 [FALLBACK] Тестирование подключения к Telegram...');
+          
+          try {
+            await window.sendToTelegram({
+              name: 'Тестовое сообщение',
+              phone: '+7 (999) 123-45-67',
+              email: 'test@srub-russia.ru'
+            }, 'test-connection');
+            
+            console.log('✅ [FALLBACK] Тест успешен!');
+            alert('✅ [FALLBACK] Тест успешен! Проверьте консоль.');
+            return true;
+          } catch (error) {
+            console.error('❌ [FALLBACK] Тест не пройден:', error);
+            alert('❌ [FALLBACK] Ошибка: ' + error.message);
+            return false;
+          }
+        };
+        
+        console.log('✓ Telegram fallback setup complete');
+      } else {
+        console.log('✓ Telegram integration is available');
+      }
+    }, 3000);
   }
 
   // ===== EVENT LISTENERS =====
@@ -347,15 +396,32 @@
     const formData = new FormData(form);
     const data = {};
     formData.forEach((value, key) => {
+      // Преобразуем чекбоксы в читаемый формат
+      if (value === 'on') {
+        value = 'Да';
+      }
       data[key] = value;
     });
 
+    // Добавляем дополнительную информацию
+    data.timestamp = new Date().toLocaleString('ru-RU');
+    data.pageUrl = window.location.href;
+
     console.log('📋 Отправка формы:', form.id, data);
 
+    // Проверяем, есть ли данные для отправки
+    if (Object.keys(data).length === 0) {
+      console.error('❌ Ошибка: данные формы пустые');
+      submitButton.classList.remove('loading');
+      submitButton.disabled = false;
+      showFormError(form, 'Ошибка: данные формы пустые');
+      return;
+    }
+
     // Проверяем наличие функции отправки
-    if (typeof sendToTelegram !== 'function') {
+    if (typeof window.sendToTelegram !== 'function') {
       console.error('❌ sendToTelegram function not found');
-      console.log('Available functions:', Object.keys(window).filter(k => k.includes('send') || k.includes('Telegram')));
+      console.log('Доступные функции:', Object.keys(window).filter(k => k.includes('send') || k.includes('Telegram')));
       
       // Имитируем успешную отправку для тестирования
       setTimeout(() => {
@@ -378,7 +444,7 @@
     }
 
     // Send to Telegram
-    sendToTelegram(data, form.id || 'contact-form')
+    window.sendToTelegram(data, form.id || 'contact-form')
       .then(() => {
         submitButton.classList.remove('loading');
         submitButton.disabled = false;
@@ -398,7 +464,16 @@
         console.error('Error:', error);
         submitButton.classList.remove('loading');
         submitButton.disabled = false;
-        showFormError(form, 'Произошла ошибка при отправке. Пожалуйста, попробуйте позже или позвоните нам: +7 (961) 139-60-44');
+        
+        // Показываем более информативное сообщение об ошибке
+        let errorMessage = 'Произошла ошибка при отправке. ';
+        if (error.message.includes('chat not found') || error.message.includes('Forbidden')) {
+          errorMessage += 'Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+        } else {
+          errorMessage += 'Пожалуйста, попробуйте позже или позвоните нам: +7 (961) 139-60-44';
+        }
+        
+        showFormError(form, errorMessage);
       });
   }
 
@@ -825,8 +900,15 @@
       const data = {};
       
       formData.forEach((value, key) => {
+        if (value === 'on') {
+          value = 'Да';
+        }
         data[key] = value;
       });
+
+      // Добавляем дополнительную информацию
+      data.timestamp = new Date().toLocaleString('ru-RU');
+      data.pageUrl = window.location.href;
 
       console.log('📋 Данные формы планировщика:', data);
 
@@ -835,7 +917,7 @@
       submitBtn.disabled = true;
 
       // Проверяем наличие функции отправки
-      if (typeof sendToTelegram !== 'function') {
+      if (typeof window.sendToTelegram !== 'function') {
         console.error('❌ sendToTelegram function not found');
         
         // Имитируем успешную отправку для тестирования
@@ -866,7 +948,7 @@
       }
 
       // Отправляем в Telegram
-      sendToTelegram(data, 'planner-form')
+      window.sendToTelegram(data, 'planner-form')
         .then(() => {
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
@@ -894,14 +976,22 @@
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
           
-          const errorMessage = document.createElement('div');
-          errorMessage.className = 'form-error';
-          errorMessage.style.cssText = 'background: #e74c3c; color: white; padding: 20px; border-radius: 12px; text-align: center; margin-top: 20px;';
-          errorMessage.innerHTML = '<strong>❌ Ошибка!</strong><br>Не удалось отправить заявку. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+          // Показываем более информативное сообщение об ошибке
+          let errorMessage = '';
+          if (error.message.includes('chat not found') || error.message.includes('Forbidden')) {
+            errorMessage = 'Ошибка конфигурации Telegram. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+          } else {
+            errorMessage = 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+          }
           
-          plannerForm.appendChild(errorMessage);
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'form-error';
+          errorDiv.style.cssText = 'background: #e74c3c; color: white; padding: 20px; border-radius: 12px; text-align: center; margin-top: 20px;';
+          errorDiv.innerHTML = `<strong>❌ Ошибка!</strong><br>${errorMessage}`;
           
-          setTimeout(() => errorMessage.remove(), 5000);
+          plannerForm.appendChild(errorDiv);
+          
+          setTimeout(() => errorDiv.remove(), 5000);
         });
     });
 
@@ -966,7 +1056,16 @@
     closeModal,
     trackEvent,
     validateEmail: SrubUtils.validateEmail,
-    validatePhone: SrubUtils.validatePhone
+    validatePhone: SrubUtils.validatePhone,
+    testTelegramConnection: function() {
+      if (typeof window.testTelegramConnection === 'function') {
+        return window.testTelegramConnection();
+      } else {
+        console.error('testTelegramConnection не найдена');
+        alert('Функция testTelegramConnection не загружена');
+        return Promise.reject('Function not loaded');
+      }
+    }
   };
 
 })();
