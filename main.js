@@ -961,7 +961,7 @@
       }
 
       // Отправляем в Telegram
-      window.sendToTelegram(data, 'planner-form')
+      window.sendToTelegram(data, 'planner-form'form-error)
         .then(() => {
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
@@ -1094,4 +1094,5 @@
 })();
 
 console.log('✓ Main scripts loaded');
+
 
