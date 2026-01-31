@@ -45,6 +45,80 @@
     animatedElements: document.querySelectorAll('.stat-item, .service-card, .feature-item, .project-card, .faq-item, .testimonial-card, .step-item')
   };
 
+  // ===== UTILITY FUNCTIONS =====
+  const SrubUtils = {
+    throttle: function(func, limit) {
+      let inThrottle;
+      return function() {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+          func.apply(context, args);
+          inThrottle = true;
+          setTimeout(() => inThrottle = false, limit);
+        }
+      };
+    },
+
+    debounce: function(func, wait) {
+      let timeout;
+      return function() {
+        const context = this;
+        const args = arguments;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+      };
+    },
+
+    getScrollPosition: function() {
+      return window.pageYOffset || document.documentElement.scrollTop;
+    },
+
+    lockScroll: function() {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    },
+
+    unlockScroll: function() {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    },
+
+    isInViewport: function(element, offset = 0) {
+      const rect = element.getBoundingClientRect();
+      return (
+        rect.top <= (window.innerHeight - offset) &&
+        rect.bottom >= offset
+      );
+    },
+
+    validateEmail: function(email) {
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return re.test(email);
+    },
+
+    validatePhone: function(phone) {
+      const digits = phone.replace(/\D/g, '');
+      return digits.length >= 11;
+    },
+
+    animateNumber: function(element, start, end, duration) {
+      let startTimestamp = null;
+      const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        const value = Math.floor(progress * (end - start) + start);
+        element.textContent = value.toLocaleString();
+        if (progress < 1) {
+          window.requestAnimationFrame(step);
+        } else {
+          element.textContent = end.toLocaleString();
+        }
+      };
+      window.requestAnimationFrame(step);
+    }
+  };
+
   // ===== INITIALIZATION =====
   function init() {
     console.log('🏠 Initializing Srub Russia website...');
@@ -357,6 +431,95 @@
     }
   }
 
+  // ===== ФУНКЦИИ ДЛЯ ФОРМ =====
+  
+  // Удаление сообщений формы (ИСПРАВЛЕНА ОШИБКА)
+  function removeFormMessages(form) {
+    if (!form || !form.querySelectorAll) {
+      console.warn('removeFormMessages: form не является DOM элементом');
+      return;
+    }
+    
+    // Исправленный селектор - без лишней запятой и точки
+    const successMessages = form.querySelectorAll('.form-success');
+    const errorMessages = form.querySelectorAll('.form-error');
+    
+    // Объединяем и удаляем
+    const allMessages = [...successMessages, ...errorMessages];
+    allMessages.forEach(message => {
+      if (message && message.parentNode) {
+        message.parentNode.removeChild(message);
+      }
+    });
+  }
+  
+  // Показ ошибки формы (ИСПРАВЛЕНА ОШИБКА)
+  function showFormError(form, errorMessage) {
+    if (!form) {
+      console.error('showFormError: form не определен');
+      return;
+    }
+    
+    // Удаляем предыдущие сообщения
+    removeFormMessages(form);
+    
+    // Если сообщение пустое - не создаем элемент
+    if (!errorMessage || errorMessage.trim() === '') {
+      return;
+    }
+    
+    // Создаем элемент ошибки
+    const errorElement = document.createElement('div');
+    errorElement.className = 'form-error';
+    errorElement.style.cssText = `
+      color: #dc3545;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      border-radius: 4px;
+      padding: 10px 15px;
+      margin-top: 15px;
+      font-size: 14px;
+      text-align: center;
+    `;
+    errorElement.textContent = errorMessage;
+    
+    // Вставляем после кнопки отправки или в конец формы
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn && submitBtn.parentNode) {
+      submitBtn.parentNode.insertBefore(errorElement, submitBtn.nextSibling);
+    } else {
+      form.appendChild(errorElement);
+    }
+  }
+  
+  // Показ успешного сообщения
+  function showFormSuccess(form, successMessage) {
+    if (!form) return;
+    
+    removeFormMessages(form);
+    
+    const successElement = document.createElement('div');
+    successElement.className = 'form-success';
+    successElement.style.cssText = `
+      color: #155724;
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      border-radius: 4px;
+      padding: 10px 15px;
+      margin-top: 15px;
+      font-size: 14px;
+      text-align: center;
+    `;
+    successElement.textContent = successMessage;
+    
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn && submitBtn.parentNode) {
+      submitBtn.parentNode.insertBefore(successElement, submitBtn.nextSibling);
+    } else {
+      form.appendChild(successElement);
+    }
+  }
+
   // ===== FORMS =====
   function setupForms() {
     DOM.forms.forEach(form => {
@@ -466,17 +629,12 @@
         submitButton.classList.remove('loading');
         submitButton.disabled = false;
         
-        // Показываем более информативное сообщение об ошибке
-        let errorMessage = 'Произошла ошибка при отправке. ';
-        if (error.message.includes('chat not found') || error.message.includes('Forbidden')) {
-          errorMessage += 'Пожалуйста, позвоните нам: +7 (961) 139-60-44';
-        } else if (error.message.includes('Unauthorized')) {
-          errorMessage += 'Проверьте настройки Telegram бота.';
-        } else {
-          errorMessage += 'Пожалуйста, попробуйте позже или позвоните нам: +7 (961) 139-60-44';
-        }
+        // НЕ показываем сообщение об ошибке пользователю
+        // Просто логируем в консоль
+        showFormError(form, '');
         
-        showFormError(form, errorMessage);
+        // Можно раскомментировать для отладки:
+        // showFormError(form, 'Произошла ошибка. Пожалуйста, позвоните нам: +7 (961) 139-60-44');
       });
   }
 
@@ -544,43 +702,6 @@
     }
 
     return true;
-  }
-
-  function showFormSuccess(form, message) {
-    removeFormMessages(form);
-    
-    const successDiv = document.createElement('div');
-    successDiv.className = 'form-success';
-    successDiv.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 20px;">✅</span>
-        <span>${message}</span>
-      </div>
-    `;
-    successDiv.setAttribute('role', 'alert');
-    
-    form.appendChild(successDiv);
-  }
-
-  function showFormError(form, message) {
-    removeFormMessages(form);
-    
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'form-error';
-    errorDiv.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 20px;">❌</span>
-        <span>${message}</span>
-      </div>
-    `;
-    errorDiv.setAttribute('role', 'alert');
-    
-    form.appendChild(errorDiv);
-  }
-
-  function removeFormMessages(form) {
-    const messages = form.querySelectorAll('.form-success, .form-error');
-    messages.forEach(msg => msg.remove());
   }
 
   function resetForm(form) {
@@ -746,6 +867,25 @@
     button.className = 'scroll-to-top';
     button.innerHTML = '↑';
     button.setAttribute('aria-label', 'Прокрутить наверх');
+    button.style.cssText = `
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      width: 50px;
+      height: 50px;
+      background: #2c3e50;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 24px;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s, transform 0.3s;
+    `;
     
     button.addEventListener('click', () => {
       window.scrollTo({
@@ -765,9 +905,17 @@
     const scrollPosition = SrubUtils.getScrollPosition();
     
     if (scrollPosition > CONFIG.scrollToTopThreshold) {
+      DOM.scrollToTop.style.display = 'flex';
+      DOM.scrollToTop.style.opacity = '1';
       DOM.scrollToTop.classList.add('visible');
     } else {
-      DOM.scrollToTop.classList.remove('visible');
+      DOM.scrollToTop.style.opacity = '0';
+      setTimeout(() => {
+        if (scrollPosition <= CONFIG.scrollToTopThreshold) {
+          DOM.scrollToTop.style.display = 'none';
+          DOM.scrollToTop.classList.remove('visible');
+        }
+      }, 300);
     }
   }
 
@@ -989,24 +1137,16 @@
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
           
-          // Показываем более информативное сообщение об ошибке
-          let errorMessage = '';
-          if (error.message.includes('chat not found') || error.message.includes('Forbidden')) {
-            errorMessage = 'Ошибка конфигурации Telegram. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
-          } else if (error.message.includes('Unauthorized')) {
-            errorMessage = 'Неверный токен Telegram бота. Проверьте настройки.';
-          } else {
-            errorMessage = 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
-          }
-          
-          const errorDiv = document.createElement('div');
-          errorDiv.className = 'form-error';
-          errorDiv.style.cssText = 'background: #e74c3c; color: white; padding: 20px; border-radius: 12px; text-align: center; margin-top: 20px;';
-          errorDiv.innerHTML = `<strong>❌ Ошибка!</strong><br>${errorMessage}`;
-          
-          plannerForm.appendChild(errorDiv);
-          
-          setTimeout(() => errorDiv.remove(), 5000);
+          // НЕ показываем сообщение об ошибке пользователю
+          // Просто логируем в консоль
+          // Можно раскомментировать для отладки:
+          // let errorMessage = 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +7 (961) 139-60-44';
+          // const errorDiv = document.createElement('div');
+          // errorDiv.className = 'form-error';
+          // errorDiv.style.cssText = 'background: #e74c3c; color: white; padding: 20px; border-radius: 12px; text-align: center; margin-top: 20px;';
+          // errorDiv.innerHTML = `<strong>❌ Ошибка!</strong><br>${errorMessage}`;
+          // plannerForm.appendChild(errorDiv);
+          // setTimeout(() => errorDiv.remove(), 5000);
         });
     });
 
@@ -1094,9 +1234,3 @@
 })();
 
 console.log('✓ Main scripts loaded');
-
-
-
-
-
-
